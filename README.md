@@ -1,82 +1,103 @@
-# 👑 CrownLibrary
+# 📚 CrownLibrary
 
-Personal research library with CLI, web reader, and mobile app.
+A personal research library for storing, reading, and syncing deep research documents.
 
-King Charly (AI assistant) does deep research and saves docs. Carlos reads them on web or phone. Bookmark where you left off, pick up tomorrow.
+## Architecture
+
+```
+ts-crownlibrary/
+├── packages/
+│   ├── server/     # Express API + SQLite backend
+│   ├── cli/        # CLI tool (cl)
+│   ├── web/        # React SPA (Vite + TailwindCSS dark theme)
+│   └── mobile/     # Expo React Native app
+├── package.json    # Workspace root
+└── README.md
+```
 
 ## Quick Start
 
 ```bash
+# Install all dependencies
 npm install
+
+# Build everything
 npm run build
-cd packages/cli && npm link && cd ../..
 
-# Add a document
-cl add "My Research" --file research.md --tags sap,research
+# Link CLI globally
+cd packages/cli && npm link
 
-# List documents
-cl ls
-
-# Search
-cl search "pricing"
-
-# Start web server
+# Start the server (serves API + web frontend)
+npm start
+# or
 cl serve
-# → http://localhost:3020
 ```
 
-## CLI Commands
+## CLI Usage
 
-| Command | Description |
-|---------|-------------|
-| `cl add <title> --file <path> --tags tag1,tag2` | Add from file |
-| `cl add <title> --stdin --tags tag1` | Add from stdin (pipe) |
-| `cl ls` | List all documents |
-| `cl ls --tag sap` | Filter by tag |
-| `cl search <query>` | Full-text search |
-| `cl read <id>` | Print to terminal |
-| `cl export <id> --md` | Export markdown |
-| `cl export <id> --pdf` | Export PDF (needs Chromium) |
-| `cl delete <id>` | Delete document |
-| `cl serve [--port 3020]` | Start web server |
+```bash
+cl add research.md --title 'SAP Pricing Analysis' --tags sap,research
+cl ls                                          # list all docs
+cl ls --tag sap                                # filter by tag
+cl search 'pricing'                            # full-text search
+cl read <id>                                   # read in terminal (less)
+cl export <id> --pdf                           # export to PDF
+cl bookmark <id> --section 'Pricing' --note 'Left off here'
+cl bookmarks                                   # show all bookmarks
+cl serve                                       # start web server
+```
 
-## Storage
-
-- **Database:** `~/.crown/library.db` (SQLite)
-- **Files:** `~/.crown/library/files/`
-- **Override:** Set `CL_DB_PATH` env var
+Short IDs work — just use the first 8 characters.
 
 ## Web App
 
-Dark-themed reader at `http://localhost:3020` (after `cl serve`):
+- Dark theme with CrownLibrary design system
+- Auto-generated Table of Contents from headings
+- Scroll position tracking & bookmarks
+- 📌 "Continue Here" — saves your reading position
+- PDF export
+- Drag & drop file upload
+- Search & tag filtering
 
-- **Library** — search, filter by tag, grid/list view
-- **Reader** — markdown renderer, TOC sidebar, reading progress, bookmarks, continue reading
-- **Detail** — metadata, bookmark list, export
+## Android App (Expo)
 
-## Mobile App (Expo)
-
-```bash
-cd apps/mobile
-npx expo start
-```
-
-Scan QR code with Expo Go on Android. Connects to the web server for docs.
-
-Configure server URL in `app.json` → `extra.serverUrl`.
-
-## Docker / Coolify
+- Document list with pull-to-refresh
+- Markdown reader with bookmark support
+- Offline reading (long-press to download)
+- WiFi-only sync toggle
+- Configurable server URL
 
 ```bash
-docker build -t crownlibrary .
-docker run -p 3020:3020 -v crown-data:/data crownlibrary
+cd packages/mobile
+npx expo start --android
 ```
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/docs` | List docs (query: `tag`, `search`, `limit`, `offset`) |
+| GET | `/api/docs/:id` | Get doc with bookmarks |
+| POST | `/api/docs` | Add doc (JSON: title, content_md, tags) |
+| POST | `/api/docs/upload` | Upload .md file |
+| PUT | `/api/docs/:id` | Update doc |
+| DELETE | `/api/docs/:id` | Delete doc |
+| POST | `/api/docs/:id/bookmark` | Add bookmark |
+| GET | `/api/docs/:id/bookmarks` | Get doc bookmarks |
+| DELETE | `/api/docs/:id/bookmark/:bmId` | Delete bookmark |
+| GET | `/api/docs/:id/export/pdf` | Export as PDF |
+| GET | `/api/docs/bookmarks/all` | All bookmarks |
+| GET | `/api/health` | Health check |
 
 ## Stack
 
-- **CLI:** Node.js + TypeScript + Commander + better-sqlite3
-- **Server:** Express + TypeScript
-- **Web:** React + Vite + TailwindCSS + React Router + react-markdown
-- **Mobile:** Expo SDK 52 + React Native + react-native-markdown-display
-- **DB:** SQLite (better-sqlite3) with FTS5 full-text search
-- **PDF:** Puppeteer + Chromium
+- **Backend:** Express + better-sqlite3 + FTS5
+- **CLI:** Commander.js + chalk
+- **Web:** React 19 + Vite + TailwindCSS
+- **Mobile:** Expo + React Native
+- **PDF:** Puppeteer (with HTML fallback)
+- **Database:** SQLite at `~/.crown/library.db`
+
+## License
+
+Private — Carlos Diego Ramírez

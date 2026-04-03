@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "CrownLibrary",
+    "slug": "crownlibrary",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "crownlibrary",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0f0f1a"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f0f1a"
+      },
+      "package": "com.crownlibrary.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.crownlibrary.app"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

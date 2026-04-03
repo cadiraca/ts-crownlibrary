@@ -2,14 +2,20 @@
   "name": "ts-crownlibrary",
   "version": "1.0.0",
   "private": true,
+  "description": "CrownLibrary — personal research library (CLI + Web + API + Mobile)",
   "workspaces": [
-    "packages/*",
-    "apps/*"
+    "packages/server",
+    "packages/cli",
+    "packages/web",
+    "packages/mobile"
   ],
   "scripts": {
-    "build": "npm run build --workspace=packages/cli && npm run build --workspace=packages/web && npm run build --workspace=packages/server",
+    "build": "npm run build --workspace=packages/server && npm run build --workspace=packages/cli && npm run build --workspace=packages/web",
     "dev:server": "npm run dev --workspace=packages/server",
     "dev:web": "npm run dev --workspace=packages/web",
-    "clean": "find . -name 'dist' -not -path '*/node_modules/*' -exec rm -rf {} + 2>/dev/null; true"
+    "start": "npm run start --workspace=packages/server"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

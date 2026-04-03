@@ -1,52 +1,75 @@
-import { Document, Bookmark, ReadingHistory } from './types';
-
 const BASE = '/api';
 
-async function req<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(BASE + url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
-  }
+export interface Doc {
+  id: string;
+  title: string;
+  content_md: string;
+  tags: string;
+  created_at: string;
+  updated_at: string;
+  content_length?: number;
+  bookmarks?: Bookmark[];
+}
+
+export interface Bookmark {
+  id: string;
+  doc_id: string;
+  section: string;
+  scroll_pos: number;
+  note: string;
+  created_at: string;
+}
+
+export async function fetchDocs(params?: { tag?: string; search?: string }): Promise<{ docs: Doc[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (params?.tag) qs.set('tag', params.tag);
+  if (params?.search) qs.set('search', params.search);
+  const res = await fetch(`${BASE}/docs?${qs}`);
   return res.json();
 }
 
-// Documents
-export const api = {
-  documents: {
-    list: (params?: { tag?: string; search?: string; sort?: string }) => {
-      const qs = new URLSearchParams();
-      if (params?.tag) qs.set('tag', params.tag);
-      if (params?.search) qs.set('search', params.search);
-      if (params?.sort) qs.set('sort', params.sort);
-      const q = qs.toString();
-      return req<Document[]>(`/documents${q ? '?' + q : ''}`);
-    },
-    get: (id: string) => req<Document>(`/documents/${id}`),
-    create: (data: { title: string; content: string; tags?: string[] }) =>
-      req<Document>('/documents', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: Partial<{ title: string; content: string; tags: string[] }>) =>
-      req<Document>(`/documents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: string) =>
-      req<{ success: boolean }>(`/documents/${id}`, { method: 'DELETE' }),
-    pdfUrl: (id: string) => `${BASE}/documents/${id}/pdf`,
-    mdUrl: (id: string) => `${BASE}/documents/${id}/md`,
-  },
+export async function fetchDoc(id: string): Promise<Doc> {
+  const res = await fetch(`${BASE}/docs/${id}`);
+  if (!res.ok) throw new Error('Not found');
+  return res.json();
+}
 
-  bookmarks: {
-    list: (docId: string) => req<Bookmark[]>(`/bookmarks?doc=${docId}`),
-    create: (data: { document_id: string; position: object; label?: string }) =>
-      req<Bookmark>('/bookmarks', { method: 'POST', body: JSON.stringify(data) }),
-    delete: (id: string) =>
-      req<{ success: boolean }>(`/bookmarks/${id}`, { method: 'DELETE' }),
-  },
+export async function addDoc(data: { title: string; content_md: string; tags?: string }): Promise<Doc> {
+  const res = await fetch(`${BASE}/docs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return res.json();
+}
 
-  reading: {
-    get: (docId: string) => req<ReadingHistory>(`/reading/${docId}`),
-    update: (docId: string, position: object) =>
-      req<ReadingHistory>(`/reading/${docId}`, { method: 'PUT', body: JSON.stringify({ position }) }),
-  },
-};
+export async function uploadDoc(file: File, title?: string, tags?: string): Promise<Doc> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (title) formData.append('title', title);
+  if (tags) formData.append('tags', tags);
+  const res = await fetch(`${BASE}/docs/upload`, { method: 'POST', body: formData });
+  return res.json();
+}
+
+export async function deleteDoc(id: string): Promise<void> {
+  await fetch(`${BASE}/docs/${id}`, { method: 'DELETE' });
+}
+
+export async function addBookmark(docId: string, data: { section?: string; scroll_pos?: number; note?: string }): Promise<Bookmark> {
+  const res = await fetch(`${BASE}/docs/${docId}/bookmark`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  return res.json();
+}
+
+export async function deleteBookmark(docId: string, bookmarkId: string): Promise<void> {
+  await fetch(`${BASE}/docs/${docId}/bookmark/${bookmarkId}`, { method: 'DELETE' });
+}
+
+export async function getAllBookmarks(): Promise<(Bookmark & { doc_title: string })[]> {
+  const res = await fetch(`${BASE}/docs/bookmarks/all`);
+  return res.json();
+}

@@ -1,8 +1,8 @@
 node_modules/
 dist/
+.expo/
 *.tsbuildinfo
-.env
-.env.local
 .DS_Store
-*.log
-~/.crown/
+*.db
+*.db-wal
+*.db-shm
