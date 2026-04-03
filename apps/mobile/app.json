@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "CrownLibrary",
+    "slug": "crownlibrary",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f0f13"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f0f13"
+      },
+      "package": "com.cadiraca.crownlibrary"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cadiraca.crownlibrary"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "serverUrl": "http://192.168.1.56:3020"
+    }
+  }
+}
