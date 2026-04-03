@@ -8,43 +8,29 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 WORKDIR /app
 
-# Copy only the server-relevant packages (exclude mobile/expo)
-COPY package.json ./
-COPY packages/cli/package*.json ./packages/cli/
-COPY packages/server/package*.json ./packages/server/
-COPY packages/web/package*.json ./packages/web/
+# Copy workspace config
+COPY package.json package-lock.json tsconfig.base.json ./
 
-# Create a Docker-specific root package.json without the mobile workspace
-RUN node -e "\
-const p = require('./package.json');\
-p.workspaces = ['packages/*'];\
-require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2));"
+# Copy package.json files for all build-able packages
+COPY packages/server/package.json ./packages/server/
+COPY packages/cli/package.json ./packages/cli/
+COPY packages/web/package.json ./packages/web/
 
-RUN npm install --ignore-scripts
+# Install dependencies
+RUN npm install
 
-COPY packages/cli/src ./packages/cli/src
-COPY packages/cli/tsconfig.json ./packages/cli/tsconfig.json
-COPY packages/server/src ./packages/server/src
-COPY packages/server/tsconfig.json ./packages/server/tsconfig.json
-COPY packages/web/src ./packages/web/src
-COPY packages/web/index.html ./packages/web/index.html
-COPY packages/web/vite.config.ts ./packages/web/vite.config.ts
-COPY packages/web/tsconfig.json ./packages/web/tsconfig.json
-COPY packages/web/tsconfig.node.json ./packages/web/tsconfig.node.json
-COPY packages/web/tailwind.config.js ./packages/web/tailwind.config.js
-COPY packages/web/postcss.config.js ./packages/web/postcss.config.js
+# Copy source files
+COPY packages/server/ ./packages/server/
+COPY packages/cli/ ./packages/cli/
+COPY packages/web/ ./packages/web/
 
-# Build CLI first (server depends on it)
-RUN cd packages/cli && npm run build
-# Build web SPA
-RUN cd packages/web && npm run build
-# Build server
-RUN cd packages/server && npm run build
+# Build all
+RUN cd packages/server && npx tsc
+RUN cd packages/cli && npx tsc
+RUN cd packages/web && npx tsc -b && npx vite build
 
-ENV CL_DB_PATH=/data/library.db
-ENV PORT=3020
-
-EXPOSE 3020
+ENV PORT=3011
+EXPOSE 3011
 
 VOLUME ["/data"]
 
