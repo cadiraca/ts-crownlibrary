@@ -1,28 +1,42 @@
 {
-  "name": "@crownlibrary/cli",
+  "name": "@cadiraca/crownlibrary",
   "version": "1.0.0",
-  "private": true,
+  "description": "📚 CrownLibrary CLI — your personal research library",
   "bin": {
     "cl": "./dist/index.js"
   },
+  "files": [
+    "dist/"
+  ],
   "scripts": {
-    "build": "tsc",
-    "dev": "ts-node src/index.ts"
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "crownlibrary",
+    "library",
+    "research",
+    "documents",
+    "cli",
+    "markdown"
+  ],
+  "author": "Carlos Diego Ramírez",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cadiraca/crownlibrary"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
-    "@crownlibrary/server": "*",
-    "better-sqlite3": "^11.0.0",
     "chalk": "^4.1.2",
     "commander": "^13.0.0",
     "marked": "^15.0.0",
-    "marked-terminal": "^7.0.0",
-    "open": "^8.4.0",
-    "uuid": "^11.0.0"
+    "marked-terminal": "^7.0.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.0",
-    "@types/uuid": "^10.0.0",
-    "ts-node": "^10.9.0",
+    "esbuild": "^0.25.0",
     "typescript": "^5.7.0"
   }
 }
