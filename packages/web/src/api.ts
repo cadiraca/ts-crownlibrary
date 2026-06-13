@@ -5,6 +5,9 @@ export interface Doc {
   title: string;
   content_md: string;
   tags: string;
+  folder?: string;
+  archived?: number;
+  last_opened_at?: string | null;
   created_at: string;
   updated_at: string;
   content_length?: number;
@@ -20,10 +23,23 @@ export interface Bookmark {
   created_at: string;
 }
 
-export async function fetchDocs(params?: { tag?: string; search?: string }): Promise<{ docs: Doc[]; total: number }> {
+export interface FetchDocsParams {
+  tag?: string;
+  search?: string;
+  folder?: string;
+  archived?: boolean;
+  sort?: 'updated' | 'created' | 'recent';
+  recentOnly?: boolean;
+}
+
+export async function fetchDocs(params?: FetchDocsParams): Promise<{ docs: Doc[]; total: number }> {
   const qs = new URLSearchParams();
   if (params?.tag) qs.set('tag', params.tag);
   if (params?.search) qs.set('search', params.search);
+  if (params?.folder) qs.set('folder', params.folder);
+  if (params?.archived !== undefined) qs.set('archived', params.archived ? '1' : '0');
+  if (params?.sort) qs.set('sort', params.sort);
+  if (params?.recentOnly) qs.set('recentOnly', '1');
   const res = await fetch(`${BASE}/docs?${qs}`);
   return res.json();
 }
@@ -54,6 +70,21 @@ export async function uploadDoc(file: File, title?: string, tags?: string): Prom
 
 export async function deleteDoc(id: string): Promise<void> {
   await fetch(`${BASE}/docs/${id}`, { method: 'DELETE' });
+}
+
+export async function markDocOpened(id: string): Promise<Doc> {
+  const res = await fetch(`${BASE}/docs/${id}/opened`, { method: 'POST' });
+  return res.json();
+}
+
+export async function archiveDoc(id: string): Promise<Doc> {
+  const res = await fetch(`${BASE}/docs/${id}/archive`, { method: 'POST' });
+  return res.json();
+}
+
+export async function unarchiveDoc(id: string): Promise<Doc> {
+  const res = await fetch(`${BASE}/docs/${id}/unarchive`, { method: 'POST' });
+  return res.json();
 }
 
 export async function addBookmark(docId: string, data: { section?: string; scroll_pos?: number; note?: string }): Promise<Bookmark> {

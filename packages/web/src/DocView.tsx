@@ -2,12 +2,32 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { fetchDoc, addBookmark, deleteBookmark, Doc, Bookmark } from './api';
+import { fetchDoc, addBookmark, deleteBookmark, markDocOpened, archiveDoc, unarchiveDoc, Doc } from './api';
 
 interface TocItem {
   id: string;
   text: string;
   level: number;
+}
+
+function slugify(value: string) {
+  return value.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
+}
+
+function downloadTextFile(filename: string, content: string, mimeType = 'text/markdown;charset=utf-8') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function safeFilename(title: string) {
+  return title.replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase();
 }
 
 export default function DocView() {
@@ -22,23 +42,26 @@ export default function DocView() {
   const [bookmarkNote, setBookmarkNote] = useState('');
   const [showBookmarkForm, setShowBookmarkForm] = useState(false);
   const [bookmarkSaved, setBookmarkSaved] = useState(false);
+  const [shareState, setShareState] = useState('');
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!id) return;
     setLoading(true);
     fetchDoc(id)
-      .then(d => {
+      .then(async d => {
         setDoc(d);
-        // Extract TOC from markdown headings
+        // Fire-and-forget recent tracking
+        markDocOpened(id).catch(() => {});
+
         const headings: TocItem[] = [];
         const lines = d.content_md.split('\n');
         for (const line of lines) {
           const match = line.match(/^(#{1,4})\s+(.+)/);
           if (match) {
             const text = match[2].replace(/[*_`#]/g, '').trim();
-            const slug = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
-            headings.push({ id: slug, text, level: match[1].length });
+            headings.push({ id: slugify(text), text, level: match[1].length });
           }
         }
         setToc(headings);
@@ -47,10 +70,9 @@ export default function DocView() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Resume reading: scroll to last bookmark
   useEffect(() => {
     if (!doc?.bookmarks?.length || !contentRef.current) return;
-    const latest = doc.bookmarks.sort((a, b) =>
+    const latest = [...doc.bookmarks].sort((a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )[0];
     if (latest.scroll_pos > 0) {
@@ -59,23 +81,19 @@ export default function DocView() {
       }, 500);
     } else if (latest.section) {
       setTimeout(() => {
-        const slug = latest.section.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
-        const el = document.getElementById(slug);
+        const el = document.getElementById(slugify(latest.section));
         el?.scrollIntoView({ behavior: 'smooth' });
       }, 500);
     }
   }, [doc]);
 
-  // Scroll tracking for TOC highlighting
   const handleScroll = useCallback(() => {
     if (!contentRef.current) return;
     const headingEls = contentRef.current.querySelectorAll('h1, h2, h3, h4');
     let current = '';
     for (const el of Array.from(headingEls)) {
       const rect = el.getBoundingClientRect();
-      if (rect.top <= 120) {
-        current = el.id;
-      }
+      if (rect.top <= 120) current = el.id;
     }
     if (current !== activeSection) setActiveSection(current);
   }, [activeSection]);
@@ -87,6 +105,12 @@ export default function DocView() {
     return () => el.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
+  useEffect(() => {
+    if (!shareState) return;
+    const timer = setTimeout(() => setShareState(''), 2000);
+    return () => clearTimeout(timer);
+  }, [shareState]);
+
   const scrollToSection = (sectionId: string) => {
     const el = document.getElementById(sectionId);
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -95,7 +119,6 @@ export default function DocView() {
   const handleBookmark = async () => {
     if (!doc || !id) return;
     const scrollPos = contentRef.current?.scrollTop || 0;
-    // Find current section
     const currentSection = toc.find(t => t.id === activeSection)?.text || '';
 
     await addBookmark(id, {
@@ -109,7 +132,6 @@ export default function DocView() {
     setBookmarkNote('');
     setTimeout(() => setBookmarkSaved(false), 2000);
 
-    // Refresh doc
     const refreshed = await fetchDoc(id);
     setDoc(refreshed);
   };
@@ -126,13 +148,49 @@ export default function DocView() {
     window.open(`/api/docs/${id}/export/pdf`, '_blank');
   };
 
-  // Custom heading renderer that adds IDs
+  const handleExportMarkdown = () => {
+    if (!doc) return;
+    downloadTextFile(`${safeFilename(doc.title)}.md`, doc.content_md);
+  };
+
+  const handleShare = async () => {
+    if (!doc) return;
+    const shareUrl = window.location.href;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: doc.title, url: shareUrl });
+        setShareState('Shared');
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareUrl);
+      setShareState('Link copied');
+    } catch {
+      setShareState('Share failed');
+    }
+  };
+
+  const handleArchiveToggle = async () => {
+    if (!doc || !id) return;
+    setArchiveBusy(true);
+    try {
+      const updated = doc.archived ? await unarchiveDoc(id) : await archiveDoc(id);
+      setDoc({ ...doc, ...updated });
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
   const HeadingRenderer = ({ level, children }: { level: number; children: React.ReactNode }) => {
     const text = String(children).replace(/[*_`#]/g, '').trim();
-    const slug = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
+    const slug = slugify(text);
     const Tag = `h${level}` as keyof JSX.IntrinsicElements;
     return <Tag id={slug}>{children}</Tag>;
   };
+
+  const tags = doc?.tags ? doc.tags.split(',').map(tag => tag.trim()).filter(Boolean) : [];
+  const folderParts = doc?.folder ? doc.folder.split('/').filter(Boolean) : [];
 
   if (loading) return <div className="min-h-screen bg-crown-bg flex items-center justify-center text-crown-muted">Loading...</div>;
   if (error || !doc) return (
@@ -147,31 +205,58 @@ export default function DocView() {
 
   return (
     <div className="min-h-screen bg-crown-bg flex flex-col">
-      {/* Top Bar */}
       <header className="border-b border-crown-border bg-crown-surface sticky top-0 z-20">
         <div className="max-w-full px-4 py-3 flex items-center gap-4">
           <button onClick={() => navigate('/')} className="text-crown-muted hover:text-crown-accent transition">
             ← Back
           </button>
-          <h1 className="flex-1 font-semibold truncate">{doc.title}</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <h1 className="font-semibold truncate">{doc.title}</h1>
+            <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-crown-muted">
+              {folderParts.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  {folderParts.map((part, index) => (
+                    <React.Fragment key={`${part}-${index}`}>
+                      {index > 0 && <span>/</span>}
+                      <span className="px-2 py-0.5 rounded-full bg-crown-bg border border-crown-border">{part}</span>
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
+              {doc.archived ? <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20">Archived</span> : null}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             {bookmarkSaved && <span className="text-green-400 text-sm">✅ Saved!</span>}
+            {shareState && <span className="text-crown-accent text-sm">{shareState}</span>}
+            <button
+              onClick={handleShare}
+              className="px-3 py-1.5 bg-crown-surface border border-crown-border rounded-lg text-sm hover:border-crown-accent transition"
+            >🔗 Share</button>
+            <button
+              onClick={handleExportMarkdown}
+              className="px-3 py-1.5 bg-crown-surface border border-crown-border rounded-lg text-sm hover:border-crown-accent transition"
+            >📝 Markdown</button>
+            <button
+              onClick={handleExportPdf}
+              className="px-3 py-1.5 bg-crown-surface border border-crown-border rounded-lg text-sm hover:border-crown-accent transition"
+            >📄 PDF</button>
+            <button
+              onClick={handleArchiveToggle}
+              disabled={archiveBusy}
+              className="px-3 py-1.5 bg-crown-surface border border-crown-border rounded-lg text-sm hover:border-crown-accent transition disabled:opacity-50"
+            >{doc.archived ? '📂 Unarchive' : '🗃️ Archive'}</button>
             <button
               onClick={() => setShowBookmarkForm(!showBookmarkForm)}
               className="px-3 py-1.5 bg-crown-surface border border-crown-border rounded-lg text-sm hover:border-crown-accent transition"
               title="Bookmark current position"
             >📌 Bookmark</button>
             <button
-              onClick={handleExportPdf}
-              className="px-3 py-1.5 bg-crown-surface border border-crown-border rounded-lg text-sm hover:border-crown-accent transition"
-            >📄 PDF</button>
-            <button
               onClick={() => setShowToc(!showToc)}
               className="px-3 py-1.5 bg-crown-surface border border-crown-border rounded-lg text-sm hover:border-crown-accent transition sm:hidden"
             >☰</button>
           </div>
         </div>
-        {/* Bookmark form */}
         {showBookmarkForm && (
           <div className="px-4 py-3 border-t border-crown-border bg-crown-bg flex gap-2 items-center">
             <input
@@ -190,7 +275,6 @@ export default function DocView() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* TOC Sidebar */}
         {showToc && toc.length > 0 && (
           <aside className="w-64 min-w-[200px] border-r border-crown-border bg-crown-surface overflow-y-auto hidden sm:block">
             <div className="p-4">
@@ -212,7 +296,6 @@ export default function DocView() {
                 ))}
               </nav>
 
-              {/* Bookmarks list */}
               {doc.bookmarks && doc.bookmarks.length > 0 && (
                 <div className="mt-6 pt-4 border-t border-crown-border">
                   <h3 className="text-xs uppercase text-crown-muted font-semibold mb-3 tracking-wider">Bookmarks</h3>
@@ -224,8 +307,7 @@ export default function DocView() {
                             if (bm.scroll_pos) {
                               contentRef.current?.scrollTo({ top: bm.scroll_pos, behavior: 'smooth' });
                             } else if (bm.section) {
-                              const slug = bm.section.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
-                              scrollToSection(slug);
+                              scrollToSection(slugify(bm.section));
                             }
                           }}
                           className="flex-1 text-left text-xs text-crown-muted hover:text-crown-accent transition"
@@ -245,14 +327,13 @@ export default function DocView() {
           </aside>
         )}
 
-        {/* Main Content */}
         <div ref={contentRef} className="flex-1 overflow-y-auto px-4 sm:px-8 py-6">
           <div className="max-w-3xl mx-auto prose-crown">
-            {doc.tags && (
-              <div className="flex gap-2 mb-4">
-                {doc.tags.split(',').filter(Boolean).map(tag => (
-                  <span key={tag} className="px-2 py-1 bg-crown-surface border border-crown-border rounded-full text-xs text-crown-muted">
-                    {tag.trim()}
+            {tags.length > 0 && (
+              <div className="flex gap-2 mb-4 flex-wrap">
+                {tags.map(tag => (
+                  <span key={tag} className="px-2 py-1 bg-crown-surface/70 border border-crown-border rounded-full text-xs text-crown-muted">
+                    {tag}
                   </span>
                 ))}
               </div>

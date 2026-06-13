@@ -2,8 +2,8 @@ import Database, { Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-const DB_DIR = path.join(process.env.HOME || '~', '.crown');
-const DB_PATH = path.join(DB_DIR, 'library.db');
+const DB_PATH = process.env.DATABASE_PATH || path.join(process.env.HOME || '~', '.crown', 'library.db');
+const DB_DIR = path.dirname(DB_PATH);
 
 if (!fs.existsSync(DB_DIR)) {
   fs.mkdirSync(DB_DIR, { recursive: true });
@@ -22,6 +22,9 @@ db.exec(`
     title TEXT NOT NULL,
     content_md TEXT NOT NULL,
     tags TEXT DEFAULT '',
+    folder TEXT DEFAULT '',
+    archived INTEGER DEFAULT 0,
+    last_opened_at TEXT DEFAULT NULL,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   );
@@ -67,6 +70,20 @@ db.exec(`
     VALUES (new.rowid, new.title, new.content_md, new.tags);
   END;
 `);
+
+// Lightweight forward-only migrations for older databases
+const documentColumns = db.prepare(`PRAGMA table_info(documents)`).all() as Array<{ name: string }>;
+const documentColumnNames = new Set(documentColumns.map((c) => c.name));
+
+if (!documentColumnNames.has('folder')) {
+  db.exec(`ALTER TABLE documents ADD COLUMN folder TEXT DEFAULT ''`);
+}
+if (!documentColumnNames.has('archived')) {
+  db.exec(`ALTER TABLE documents ADD COLUMN archived INTEGER DEFAULT 0`);
+}
+if (!documentColumnNames.has('last_opened_at')) {
+  db.exec(`ALTER TABLE documents ADD COLUMN last_opened_at TEXT DEFAULT NULL`);
+}
 
 export default db;
 export { DB_DIR, DB_PATH };

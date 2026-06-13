@@ -10,48 +10,73 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // List all documents
 router.get('/', (req: Request, res: Response) => {
-  const { tag, search, limit, offset } = req.query;
+  const { tag, search, limit, offset, folder, archived, sort, recentOnly } = req.query;
 
-  let docs;
+  const limitNum = Number(limit) || 50;
+  const offsetNum = Number(offset) || 0;
+  const archivedValue = archived === '1' || archived === 'true' ? 1 : 0;
+  const includeArchivedExplicitly = archived !== undefined;
+  const recentOnlyEnabled = recentOnly === '1' || recentOnly === 'true';
+  const where: string[] = [];
+  const params: any[] = [];
 
   if (search && typeof search === 'string') {
-    // Full-text search
-    const stmt = db.prepare(`
-      SELECT d.id, d.title, d.tags, d.created_at, d.updated_at,
-             LENGTH(d.content_md) as content_length
-      FROM documents d
-      JOIN documents_fts fts ON d.rowid = fts.rowid
-      WHERE documents_fts MATCH ?
-      ORDER BY rank
-      LIMIT ? OFFSET ?
-    `);
-    docs = stmt.all(search, Number(limit) || 50, Number(offset) || 0);
-  } else if (tag && typeof tag === 'string') {
-    // Filter by tag
-    const stmt = db.prepare(`
-      SELECT id, title, tags, created_at, updated_at,
-             LENGTH(content_md) as content_length
-      FROM documents
-      WHERE ',' || tags || ',' LIKE '%,' || ? || ',%'
-      ORDER BY updated_at DESC
-      LIMIT ? OFFSET ?
-    `);
-    docs = stmt.all(tag, Number(limit) || 50, Number(offset) || 0);
-  } else {
-    // List all
-    const stmt = db.prepare(`
-      SELECT id, title, tags, created_at, updated_at,
-             LENGTH(content_md) as content_length
-      FROM documents
-      ORDER BY updated_at DESC
-      LIMIT ? OFFSET ?
-    `);
-    docs = stmt.all(Number(limit) || 50, Number(offset) || 0);
+    where.push('documents_fts MATCH ?');
+    params.push(search);
   }
 
-  const count = db.prepare('SELECT COUNT(*) as total FROM documents').get() as { total: number };
+  if (tag && typeof tag === 'string') {
+    where.push(`',' || d.tags || ',' LIKE '%,' || ? || ',%'`);
+    params.push(tag);
+  }
 
-  res.json({ docs, total: count.total });
+  if (folder && typeof folder === 'string') {
+    where.push(`(d.folder = ? OR d.folder LIKE ?)`);
+    params.push(folder, `${folder}/%`);
+  }
+
+  if (includeArchivedExplicitly) {
+    where.push('d.archived = ?');
+    params.push(archivedValue);
+  } else {
+    where.push('d.archived = 0');
+  }
+
+  if (recentOnlyEnabled) {
+    where.push('d.last_opened_at IS NOT NULL');
+  }
+
+  let orderBy = 'd.updated_at DESC';
+  if (sort === 'created') {
+    orderBy = 'd.created_at DESC';
+  } else if (sort === 'recent') {
+    orderBy = 'CASE WHEN d.last_opened_at IS NULL THEN 1 ELSE 0 END, d.last_opened_at DESC, d.updated_at DESC';
+  }
+
+  const joinFts = search && typeof search === 'string'
+    ? 'JOIN documents_fts fts ON d.rowid = fts.rowid'
+    : '';
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const docs = db.prepare(`
+    SELECT d.id, d.title, d.tags, d.folder, d.archived, d.last_opened_at, d.created_at, d.updated_at,
+           LENGTH(d.content_md) as content_length
+    FROM documents d
+    ${joinFts}
+    ${whereSql}
+    ORDER BY ${orderBy}
+    LIMIT ? OFFSET ?
+  `).all(...params, limitNum, offsetNum);
+
+  const countRow = db.prepare(`
+    SELECT COUNT(*) as total
+    FROM documents d
+    ${joinFts}
+    ${whereSql}
+  `).get(...params) as { total: number };
+
+  res.json({ docs, total: countRow.total });
 });
 
 // Get single document
@@ -128,7 +153,7 @@ router.put('/:id', (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Document not found' });
   }
 
-  const { title, content_md, tags } = req.body;
+  const { title, content_md, tags, folder, archived } = req.body;
   const updates: string[] = [];
   const values: any[] = [];
 
@@ -139,6 +164,8 @@ router.put('/:id', (req: Request, res: Response) => {
     updates.push('tags = ?');
     values.push(tagStr);
   }
+  if (folder !== undefined) { updates.push('folder = ?'); values.push(folder || ''); }
+  if (archived !== undefined) { updates.push('archived = ?'); values.push(archived ? 1 : 0); }
 
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No fields to update' });
@@ -148,6 +175,54 @@ router.put('/:id', (req: Request, res: Response) => {
   values.push(req.params.id);
 
   db.prepare(`UPDATE documents SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+  const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
+  res.json(doc);
+});
+
+// Mark document as opened
+router.post('/:id/opened', (req: Request, res: Response) => {
+  const result = db.prepare(`
+    UPDATE documents
+    SET last_opened_at = datetime('now')
+    WHERE id = ?
+  `).run(req.params.id);
+
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Document not found' });
+  }
+
+  const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
+  res.json(doc);
+});
+
+// Archive document
+router.post('/:id/archive', (req: Request, res: Response) => {
+  const result = db.prepare(`
+    UPDATE documents
+    SET archived = 1, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(req.params.id);
+
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Document not found' });
+  }
+
+  const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
+  res.json(doc);
+});
+
+// Unarchive document
+router.post('/:id/unarchive', (req: Request, res: Response) => {
+  const result = db.prepare(`
+    UPDATE documents
+    SET archived = 0, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(req.params.id);
+
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Document not found' });
+  }
 
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   res.json(doc);
@@ -256,11 +331,11 @@ router.get('/:id/export/pdf', async (req: Request, res: Response) => {
         printBackground: true
       }));
       await browser.close();
-    } catch {
-      // Fallback: return HTML if puppeteer isn't available
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Content-Disposition', `attachment; filename="${doc.title}.html"`);
-      return res.send(html);
+    } catch (pdfErr: any) {
+      return res.status(500).json({
+        error: 'PDF export failed',
+        details: pdfErr?.message || 'Unknown PDF generation error'
+      });
     }
 
     // Save export record
